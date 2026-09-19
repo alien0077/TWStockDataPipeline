@@ -46,27 +46,47 @@ def _read_required(path: Path) -> bytes:
 def main() -> int:
     args = parse_args()
     report = _load_report(args.report)
-    allowed = {
+    mapping = {
+        "market": "daily/tw",
+        "institutional": "daily/institutional",
+        "margin": "daily/tw_market_margin",
+        "tdcc": "weekly/shareholders",
+        "revenue": "monthly",
+        "financial": "quarterly",
         "etf": "quant/etf/outputs/latest_snapshot.json",
         "fx": "meta/exchange_rate_history.json",
         "calendar": "meta/calendar.json",
-        "corporate_actions": f"meta/actions/{date.today().year}.json",
+        "corporate_actions": "meta/actions",
     }
-    publishable = [domain for domain in allowed if report.get(domain, {}).get("status") == "PASS"]
+    publishable = [domain for domain in mapping if report.get(domain, {}).get("status") == "PASS"]
     if not publishable:
         raise SystemExit("compatibility gate: no PASS domain is publishable")
 
     candidate_files: dict[str, bytes] = {}
     baseline_files: dict[str, bytes] = {}
     domain_by_path: dict[str, str] = {}
+
+    def selected_files(root: Path, relative: str) -> list[Path]:
+        target = root / relative
+        if target.is_file():
+            return [target]
+        if target.is_dir():
+            return sorted(target.rglob("*.json"))
+        return []
+
     for domain in publishable:
-        relative = allowed[domain]
-        publish_path = str(Path("data") / relative)
-        candidate_files[publish_path] = _read_required(args.shadow_root / relative)
-        baseline_path = args.baseline_root / publish_path
-        if baseline_path.exists():
-            baseline_files[publish_path] = _read_required(baseline_path)
-        domain_by_path[publish_path] = domain
+        relative = mapping[domain]
+        sources = selected_files(args.shadow_root, relative)
+        if not sources:
+            raise SystemExit(f"publish validation failed: no candidate files for {domain}: {relative}")
+        for source in sources:
+            rel = source.relative_to(args.shadow_root).as_posix()
+            publish_path = f"data/{rel}"
+            candidate_files[publish_path] = _read_required(source)
+            baseline_path = args.baseline_root / publish_path
+            if baseline_path.exists():
+                baseline_files[publish_path] = _read_required(baseline_path)
+            domain_by_path[publish_path] = domain
 
     compatibility_pass = all(report.get(domain, {}).get("status") == "PASS" for domain in publishable)
     state = prepare_publish_state(
