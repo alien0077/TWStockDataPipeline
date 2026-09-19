@@ -319,6 +319,11 @@ def sync_etf(data_root: Path) -> Path:
                 if len(row) >= 2:
                     otc_rows.append({"證券代號": row[0], "證券名稱": row[1]})
     _merge_tpex_quote_fallback(etfs, otc_rows)
+    # Acceptance sentinel for the documented TPEx discovery-source coverage
+    # gap. Never synthesize this security: an official generic source above
+    # must recover it or the ETF snapshot is rejected.
+    if "00793B" not in etfs:
+        raise RuntimeError("ETF universe incomplete: active TPEx ETF 00793B missing")
     # Holdings are a separate public source. Keep failures explicit per ETF;
     # never manufacture an empty successful holding list.
     def probe(entry: tuple[str, dict]) -> tuple[str, bool, str | None]:
