@@ -46,7 +46,7 @@ def materialize_contract_baseline(repo: str, sha: str, root: Path) -> None:
     from twstock_pipeline.github_api import GitHubGitDataAPI
 
     paths = list(CONTRACTS.values())
-    paths.append(f"data/meta/actions/{date.today().year}.json")
+    target_year = (date.today() if not hasattr(materialize_contract_baseline, "_target_date") else materialize_contract_baseline._target_date).year\n    paths.append(f"data/meta/actions/{target_year}.json")
     api = GitHubGitDataAPI(token=os.environ.get("GITHUB_TOKEN"))
     files = api.load_files_at_commit(repo, sha, sorted(paths))
     for path, payload in files.items():
@@ -79,7 +79,7 @@ def main() -> int:
         run([PYTHON, "scripts/build_shadow_health.py",
              "--data-root", str(shadow), "--output", str(args.health)])
 
-        materialize_contract_baseline(args.repo, args.baseline_sha, baseline)
+        materialize_contract_baseline._target_date = args.date or date.today()\n        materialize_contract_baseline(args.repo, args.baseline_sha, baseline)
         # Placeholder path may remain absent: institutional_boundary() explicitly
         # marks this private-derived legacy contract NOT_APPLICABLE_PRIVATE.
         run([PYTHON, "scripts/compare_public_data.py",
