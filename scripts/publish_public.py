@@ -95,7 +95,15 @@ def main() -> int:
             args.repo, args.baseline_sha, sorted(candidate_files)
         )
 
-    compatibility_pass = all(report.get(domain, {}).get("status") in allowed_status for domain in publishable)
+    required_domains = set(mapping)
+    missing_or_failed = {
+        domain: report.get(domain, {}).get("status")
+        for domain in required_domains
+        if report.get(domain, {}).get("status") not in allowed_status
+    }
+    compatibility_pass = not missing_or_failed
+    if missing_or_failed:
+        raise SystemExit(f"compatibility gate failed: {missing_or_failed}")
     state = prepare_publish_state(
         baseline_sha=args.baseline_sha,
         baseline_files=baseline_files,
