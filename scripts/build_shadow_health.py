@@ -5,6 +5,9 @@ import argparse
 import json
 from datetime import date, datetime, timezone
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from twstock_pipeline.calendar import latest_expected_trading_date
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-root", type=Path, required=True)
@@ -22,6 +25,7 @@ patterns = {
     "fx": "meta/exchange_rate_history.json",
 }
 domains = {}
+expected_trading = latest_expected_trading_date(date.today(), root)
 for domain, pattern in patterns.items():
     files = sorted(root.glob(pattern))
     latest = None
@@ -31,6 +35,7 @@ for domain, pattern in patterns.items():
             latest = date.fromisoformat(stem).isoformat()
         except ValueError:
             latest = datetime.fromtimestamp(files[-1].stat().st_mtime, timezone.utc).date().isoformat()
-    domains[domain] = {"latest_date": latest, "expected_date": date.today().isoformat(), "stale": latest is None, "status": "healthy" if latest else "missing_output", "output_exists": bool(files)}
+    expected = expected_trading.isoformat() if domain in {"market", "institutional", "margin"} else date.today().isoformat()
+    domains[domain] = {"latest_date": latest, "expected_date": expected, "stale": latest != expected, "status": "healthy" if latest == expected else "missing_output", "output_exists": bool(files)}
 args.output.parent.mkdir(parents=True, exist_ok=True)
 args.output.write_text(json.dumps({"generated_at": datetime.now(timezone.utc).isoformat(), "domains": domains}, ensure_ascii=False, indent=2) + "\n")
