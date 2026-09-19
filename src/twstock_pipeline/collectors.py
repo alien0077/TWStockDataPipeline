@@ -218,7 +218,7 @@ def sync_revenue(data_root: Path) -> Path:
 
 
 def sync_etf(data_root: Path) -> Path:
-    """Reuse the existing official ETF universe endpoint and ETFInfo holdings source."""
+    """Use the existing public TWSE + TPEx ETF registry sources."""
     universe = _request("https://openapi.twse.com.tw/v1/opendata/t187ap47_L").json()
     etfs = {}
     for item in universe:
@@ -234,6 +234,25 @@ def sync_etf(data_root: Path) -> Path:
             "data_mode": "public_probe",
             "holdings": [],
             "source": "TWSE ETF OpenAPI",
+        }
+    # The legacy public registry also included TPEx ETFs. Keep this source
+    # public and explicit; do not reintroduce private ranking logic.
+    tpex = _request("https://info.tpex.org.tw/api/etfFilter", timeout=30)
+    for item in tpex.json().get("data", []):
+        code = str(item.get("stockNo", "")).strip()
+        name = str(item.get("stockName", "")).strip()
+        if not code or not name or code in etfs:
+            continue
+        etfs[code] = {
+            "name": name,
+            "category": "ETF",
+            "type": "ETF",
+            "tier": "official",
+            "data_mode": "public_probe",
+            "holdings": [],
+            "source": "TPEx ETF registry API",
+            "issuer": str(item.get("issuer", "")).strip(),
+            "index_name": str(item.get("indexName", "")).strip(),
         }
     # Holdings are a separate public source. Keep failures explicit per ETF;
     # never manufacture an empty successful holding list.
