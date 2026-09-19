@@ -224,8 +224,23 @@ def _is_etf_security_code(code: str) -> bool:
 
 def _merge_tpex_quote_fallback(etfs: dict[str, dict], quote_rows: list[dict]) -> None:
     for item in quote_rows:
-        code = str(item.get("SecuritiesCompanyCode", "")).strip()
-        name = str(item.get("CompanyName", "")).strip()
+        code = str(
+            item.get("SecuritiesCompanyCode")
+            or item.get("SecuritiesCompanyCode ")
+            or item.get("SecuritiesCode")
+            or item.get("Code")
+            or item.get("代號")
+            or item.get("證券代號")
+            or ""
+        ).strip()
+        name = str(
+            item.get("CompanyName")
+            or item.get("SecuritiesCompanyName")
+            or item.get("Name")
+            or item.get("名稱")
+            or item.get("證券名稱")
+            or ""
+        ).strip()
         if not code or not name or not _is_etf_security_code(code) or code in etfs:
             continue
         etfs[code] = {
