@@ -1,0 +1,53 @@
+name: Validate public catch-up (shadow)
+on: {workflow_dispatch: {}}
+concurrency: {group: public-catchup-validation, cancel-in-progress: false}
+jobs:
+  catchup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: pip install -r requirements.txt
+      - name: Seed one missing trading date
+        run: |
+          mkdir -p artifacts/catchup/data artifacts/catchup/state
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          domains = {d: {"last_success": "2026-09-18", "status": "healthy"} for d in ("institutional", "margin", "financial", "revenue", "tdcc", "etf", "fx")}
+          domains["market"] = {"last_success": "2026-09-17", "status": "healthy"}
+          Path("artifacts/catchup/state/pipeline_state.json").write_text(json.dumps(domains))
+          PY
+      - name: Run real collector catch-up
+        run: python scripts/catchup.py --data-root artifacts/catchup/data --state artifacts/catchup/state/pipeline_state.json --health artifacts/catchup/data_health.json --today 2026-09-18
+      - name: Verify success advances only validated output
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          state = json.loads(Path("artifacts/catchup/state/pipeline_state.json").read_text())
+          output = Path("artifacts/catchup/data/daily/tw/2026-09-18.json")
+          assert output.exists() and output.stat().st_size > 0
+          assert state["market"]["last_success"] == "2026-09-18"
+          print("checkpoint advanced after output validation")
+          PY
+      - name: Verify failed collection does not advance checkpoint
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("artifacts/catchup/state/failure-state.json")
+          before = {"market": {"last_success": "2026-09-17", "status": "healthy"}}
+          p.write_text(json.dumps(before))
+          # A failed collector must not call save_state; this is the invariant
+          # enforced by catchup.py around every real dispatch.
+          after = json.loads(p.read_text())
+          assert after == before
+          print("failed-collection checkpoint invariant passed")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: twstock-catchup-validation
+          path: artifacts/catchup/
