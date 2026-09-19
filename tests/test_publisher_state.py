@@ -78,3 +78,16 @@ def test_exact_audited_bytes_are_transport_bytes():
     path = "data/q.json"
     assert state.changes[path] is state.final_files[path]
     assert hashlib.sha256(state.changes[path]).digest() == hashlib.sha256(state.final_files[path]).digest()
+
+
+def test_publish_plan_never_emits_deletion_for_untouched_baseline_paths():
+    state = prepare_publish_state(
+        baseline_sha="head",
+        baseline_files={"data/untouched.json": b'{"legacy":true}\n'},
+        candidate_files={"data/new.json": b'{"new":true}\n'},
+        domain_by_path={"data/new.json": "fx"},
+        compatibility_pass=True,
+    )
+    assert state.safety.delete_count == 0
+    assert "data/untouched.json" not in state.publish_plan
+    assert "data/untouched.json" not in state.changes
