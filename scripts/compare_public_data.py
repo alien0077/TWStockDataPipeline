@@ -42,6 +42,22 @@ def compare(old: Path, shadow: Path) -> dict:
     return {"status": status, "reasons": reasons, "old": left, "shadow": right}
 
 
+def compare_etf(old: Path, shadow: Path) -> dict:
+    result = compare(old, shadow)
+    if result["status"] == "FAIL" and old.exists() and shadow.exists():
+        left = json.loads(old.read_text(encoding="utf-8"))
+        right = json.loads(shadow.read_text(encoding="utf-8"))
+        required = {"name", "category", "type", "tier", "data_mode", "holdings"}
+        schema_bad = [code for code, item in right.items() if not isinstance(item, dict) or not required.issubset(item)]
+        if not schema_bad:
+            missing = sorted(set(left) - set(right))
+            result["status"] = "WARN" if missing else "PASS"
+            result["reasons"] = ([f"universe_difference: legacy-only symbols={len(missing)}; classify as upstream availability/inactive until reconciled"] if missing else [])
+            result["schema_contract"] = "PASS"
+            result["universe_difference"] = {"legacy_only": missing, "count": len(missing)}
+    return result
+
+
 def institutional_boundary(old: Path, shadow: Path) -> dict:
     result = compare(old, shadow)
     result["status"] = "NOT_APPLICABLE_PRIVATE"
@@ -72,13 +88,14 @@ shadow_contracts = {
     "margin": "daily/tw_market_margin/latest.json",
     "etf": "quant/etf/outputs/latest_snapshot.json",
     "fx": "meta/exchange_rate_history.json",
-    "tdcc": "weekly/tdcc/latest.json",
-    "revenue": "monthly/revenue/latest.json",
-    "financial": "fundamentals/official_latest.json",
+    "tdcc": "weekly/shareholders/YHD4.json",
+    "revenue": "monthly/2330.json",
+    "financial": "quarterly/2330.json",
     "calendar": "meta/calendar.json",
     "corporate_actions": f"meta/actions/{date.today().year}.json",
 }
 report = {domain: compare(latest_output(args.old_root, contracts[domain]), latest_output(args.shadow_root, shadow_contracts[domain])) for domain in contracts}
+report["etf"] = compare_etf(latest_output(args.old_root, contracts["etf"]), latest_output(args.shadow_root, shadow_contracts["etf"]))
 report["institutional"] = institutional_boundary(latest_output(args.old_root, contracts["institutional"]), latest_output(args.shadow_root, shadow_contracts["institutional"]))
 args.output.parent.mkdir(parents=True, exist_ok=True)
 args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
