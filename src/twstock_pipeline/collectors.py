@@ -15,6 +15,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from twstock_pipeline.history import merge_history, atomic_json
 
 import requests
 
@@ -138,6 +139,20 @@ def sync_tdcc(data_root: Path) -> Path:
     rows = list(csv.reader(io.StringIO(text)))
     path = data_root / "weekly" / "tdcc" / "latest.json"
     _write_json(path, {"source": "TDCC official open data id=1-5", "rows": rows})
+    if rows:
+        header, records = rows[0], rows[1:]
+        grouped = {}
+        for raw in records:
+            item = dict(zip(header, raw))
+            symbol = str(item.get("證券代號", "")).strip()
+            if symbol:
+                grouped.setdefault(symbol, []).append(item)
+        for symbol, items in grouped.items():
+            day = items[0].get("資料日期", "")
+            observation = {"date": day, "week": day, "levels": items}
+            target = data_root / "weekly" / "shareholders" / f"{symbol}.json"
+            merged = merge_history(target, [observation], lambda x: str(x.get("date", x.get("week", ""))), lambda x: str(x.get("date", x.get("week", ""))))
+            _write_json(target, {"recent": merged["data"]})
     return path
 
 
@@ -153,6 +168,20 @@ def sync_financial(data_root: Path) -> Path:
     payload = {name: _request(url).json() for name, url in endpoints.items()}
     path = data_root / "fundamentals" / "official_latest.json"
     _write_json(path, {"source": "TWSE/TPEX official OpenAPI", "datasets": payload})
+    grouped = {}
+    for dataset in ("twse_income", "tpex_income"):
+        for row in payload.get(dataset, []):
+            symbol = str(row.get("公司代號") or row.get("SecuritiesCompanyCode") or "").strip()
+            if not symbol:
+                continue
+            year, season = str(row.get("年度") or row.get("Year") or ""), str(row.get("季別") or row.get("Season") or "")
+            period = f"{int(year)+1911}-Q{season}" if year.isdigit() and season else ""
+            eps = _number(row.get("基本每股盈餘（元）"))
+            record = {"date": str(row.get("出表日期") or row.get("Date") or ""), "period": period, "value": eps, "eps": eps, "gm": None, "om": None, "nm": None, "roe": None, "roa": None, "bvps": None, "yoy": None}
+            grouped.setdefault(symbol, []).append(record)
+    for symbol, records in grouped.items():
+        target = data_root / "quarterly" / f"{symbol}.json"
+        _write_json(target, merge_history(target, records, lambda x: str(x.get("period", "")), lambda x: str(x.get("period", ""))))
     return path
 
 
@@ -172,6 +201,19 @@ def sync_revenue(data_root: Path) -> Path:
         payload["upstream_errors"] = errors
     path = data_root / "monthly" / "revenue" / "latest.json"
     _write_json(path, {"source": "TWSE/TPEX official monthly revenue", "datasets": payload, "upstream_status": "partial" if errors else "complete"})
+    grouped = {}
+    for dataset in ("twse", "tpex"):
+        for row in payload.get(dataset, []):
+            symbol = str(row.get("公司代號") or row.get("SecuritiesCompanyCode") or "").strip()
+            roc_period = str(row.get("資料年月") or "")
+            if not symbol or len(roc_period) != 5 or not roc_period.isdigit():
+                continue
+            year, month = int(roc_period[:3]) + 1911, int(roc_period[3:])
+            record = {"date": f"{year:04d}-{month:02d}-01", "period": f"{year:04d}-{month:02d}", "value": _number(row.get("營業收入-當月營收")), "yoy": _number(row.get("營業收入-去年同月增減(%)"))}
+            grouped.setdefault(symbol, []).append(record)
+    for symbol, records in grouped.items():
+        target = data_root / "monthly" / f"{symbol}.json"
+        _write_json(target, merge_history(target, records, lambda x: str(x.get("period", "")), lambda x: str(x.get("period", ""))))
     return path
 
 
