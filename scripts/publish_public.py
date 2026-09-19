@@ -48,7 +48,7 @@ def main() -> int:
     report = _load_report(args.report)
     mapping = {
         "market": "daily/tw",
-        "institutional": "daily/institutional",
+        "institutional": None,
         "margin": "daily/tw_market_margin",
         "tdcc": "weekly/shareholders",
         "revenue": "monthly",
@@ -76,6 +76,8 @@ def main() -> int:
 
     for domain in publishable:
         relative = mapping[domain]
+        if relative is None:
+            continue
         sources = selected_files(args.shadow_root, relative)
         if not sources:
             raise SystemExit(f"publish validation failed: no candidate files for {domain}: {relative}")
