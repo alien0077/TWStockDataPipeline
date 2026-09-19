@@ -129,3 +129,23 @@ def test_entrypoint_head_race_never_updates_ref(tmp_path, monkeypatch):
         assert api.ref_updates == []
     finally:
         FakeAPI.race = False
+
+
+def test_entrypoint_accepts_explicit_private_boundary_status(tmp_path, monkeypatch):
+    shadow = tmp_path / "shadow"
+    baseline = tmp_path / "baseline"
+    report = tmp_path / "report.json"
+    checkpoint = tmp_path / "checkpoint.json"
+    (shadow / "daily" / "institutional").mkdir(parents=True)
+    (baseline / "data" / "daily" / "institutional").mkdir(parents=True)
+    payload = b'{"date":"2026-09-19"}\n'
+    (shadow / "daily" / "institutional" / "latest.json").write_bytes(payload)
+    (baseline / "data" / "daily" / "institutional" / "latest.json").write_bytes(payload)
+    report.write_text(json.dumps({"institutional": {"status": "NOT_APPLICABLE_PRIVATE"}}))
+    monkeypatch.setattr(sys, "argv", [
+        "publish_public.py", "--shadow-root", str(shadow),
+        "--baseline-root", str(baseline), "--baseline-sha", "baseline",
+        "--report", str(report), "--checkpoint", str(checkpoint),
+    ])
+    assert publish_public.main() == 0
+    assert json.loads(checkpoint.read_text())["gates"]["compatibility_pass"] is True
