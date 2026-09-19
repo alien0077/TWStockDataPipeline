@@ -23,8 +23,8 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt pytest
-      - run: pytest -q
-      - run: python -m compileall -q scripts src tests
+      - run: PYTHONPATH="$PWD/src:$PWD" pytest -q
+      - run: PYTHONPATH="$PWD/src:$PWD" python -m compileall -q scripts src tests
       - name: Assert no legacy Public_Data git mutation
         run: |
           ! grep -En 'git (clone|add|commit|push)|subprocess.*git' scripts/publish_public.py
