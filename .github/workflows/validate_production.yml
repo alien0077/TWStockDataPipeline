@@ -30,6 +30,7 @@ jobs:
           python scripts/build_shadow_health.py --data-root artifacts/shadow --output artifacts/shadow/data_health.json
           git clone --depth 1 https://github.com/alien0077/Public_Data.git artifacts/legacy
           python scripts/compare_public_data.py --old-root artifacts/legacy/data --shadow-root artifacts/shadow --output artifacts/compatibility_report.json
+          rm -rf artifacts/legacy
       - uses: actions/upload-artifact@v4
         if: always()
         with:
