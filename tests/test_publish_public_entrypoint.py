@@ -176,3 +176,13 @@ def test_remote_baseline_loader_is_used_without_local_baseline(tmp_path, monkeyp
     assert publish_public.main() == 0
     result = json.loads(checkpoint.read_text())
     assert result["plan"]["data/meta/exchange_rate_history.json"] == "MODIFY"
+
+
+def test_production_requires_all_public_domain_gates(tmp_path, monkeypatch):
+    fixture_args(tmp_path, monkeypatch, publish=True)
+    monkeypatch.setenv("PUBLIC_DATA_TOKEN", "test-token")
+    FakeAPI.instances.clear()
+    monkeypatch.setattr(publish_public, "GitHubGitDataAPI", FakeAPI)
+    with pytest.raises(SystemExit, match="compatibility gate failed"):
+        publish_public.main()
+    assert not FakeAPI.instances
