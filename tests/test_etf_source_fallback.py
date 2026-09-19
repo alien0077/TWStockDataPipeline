@@ -21,3 +21,9 @@ def test_tpex_quote_fallback_accepts_official_chinese_quote_fields():
     rows = [{"證券代號": "00793B", "證券名稱": "群益AAA-A醫療債"}]
     _merge_tpex_quote_fallback(etfs, rows)
     assert etfs["00793B"]["name"] == "群益AAA-A醫療債"
+
+
+def test_active_etf_sentinel_is_not_a_special_case_in_classifier_source():
+    # The generic classifier accepts the official ETF class; sync_etf itself
+    # must obtain the symbol from an official source rather than manufacture it.
+    assert _is_etf_security_code("00793B")
