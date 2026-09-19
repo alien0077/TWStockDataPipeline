@@ -13,6 +13,8 @@ from datetime import date
 from pathlib import Path
 
 from twstock_pipeline.publisher_state import gates_from_state, prepare_publish_state
+from twstock_pipeline.git_data_publish import GitDataPublisher, validate_publish_gates
+from twstock_pipeline.github_api import GitHubGitDataAPI
 
 
 def parse_args() -> argparse.Namespace:
@@ -84,12 +86,22 @@ def main() -> int:
         "changed_paths": sorted(state.changes),
     }
 
+    gates = gates_from_state(state)
+    validate_publish_gates(gates)
+
     if args.publish:
-        # Keep production fail-closed until the read-only GitHub baseline/API
-        # adapter is implemented and covered by entry-point safety tests.
-        if not os.environ.get("PUBLIC_DATA_TOKEN"):
+        token = os.environ.get("PUBLIC_DATA_TOKEN")
+        if not token:
             raise SystemExit("PUBLIC_DATA_TOKEN is required for production publish")
-        raise SystemExit("production Git Data API adapter is not wired; refusing remote mutation")
+        api = GitHubGitDataAPI(token=token)
+        publisher = GitDataPublisher(api=api, repo=args.repo, token=token, dry_run=False)
+        transport = publisher.publish(
+            expected_head=state.baseline_sha,
+            changes=dict(state.changes),
+            gates=gates,
+        )
+        result["status"] = "published"
+        result["transport"] = transport
 
     args.checkpoint.parent.mkdir(parents=True, exist_ok=True)
     args.checkpoint.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
