@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from datetime import date
 
 
 def validate_public_data_tree(data_root: Path) -> list[str]:
@@ -27,3 +28,14 @@ def validate_health_payload(payload: dict) -> list[str]:
             if key not in entry:
                 errors.append(f"health {domain} missing key: {key}")
     return errors
+
+
+def latest_output(data_root: Path, relative: str) -> Path:
+    """Resolve a legacy exact path or the date-stamped equivalent."""
+    exact = data_root / relative
+    if exact.exists():
+        return exact
+    path = Path(relative)
+    pattern = "*.json" if path.stem == "latest" else f"{path.stem}*.json"
+    candidates = sorted(data_root.glob(str(path.parent / pattern)))
+    return candidates[-1] if candidates else exact

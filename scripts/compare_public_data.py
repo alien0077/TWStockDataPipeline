@@ -5,6 +5,9 @@ import argparse
 import json
 from datetime import date
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from twstock_pipeline.compat import latest_output
 
 
 def inspect(path: Path) -> dict:
@@ -46,6 +49,18 @@ parser.add_argument("--output", type=Path, required=True)
 args = parser.parse_args()
 contracts = {
     "market": "daily/tw/latest.json",
+    "institutional": "quant/institutional_leaderboard.json",
+    "margin": "daily/tw_market_margin/latest.json",
+    "etf": "quant/etf/outputs/latest_snapshot.json",
+    "fx": "meta/exchange_rate_history.json",
+    "tdcc": "weekly/shareholders/YHD4.json",
+    "revenue": "monthly/2330.json",
+    "financial": "quarterly/2330.json",
+    "calendar": "meta/calendar.json",
+    "corporate_actions": f"meta/actions/{date.today().year}.json",
+}
+shadow_contracts = {
+    "market": "daily/tw/latest.json",
     "institutional": "daily/institutional/latest.json",
     "margin": "daily/tw_market_margin/latest.json",
     "etf": "quant/etf/outputs/latest_snapshot.json",
@@ -56,7 +71,7 @@ contracts = {
     "calendar": "meta/calendar.json",
     "corporate_actions": f"meta/actions/{date.today().year}.json",
 }
-report = {domain: compare(args.old_root / rel, args.shadow_root / rel) for domain, rel in contracts.items()}
+report = {domain: compare(latest_output(args.old_root, contracts[domain]), latest_output(args.shadow_root, shadow_contracts[domain])) for domain in contracts}
 args.output.parent.mkdir(parents=True, exist_ok=True)
 args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 print(json.dumps({k: v["status"] for k, v in report.items()}, ensure_ascii=False))
