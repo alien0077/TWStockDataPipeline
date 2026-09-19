@@ -302,19 +302,22 @@ def sync_etf(data_root: Path) -> Path:
     # remain present in TPEx's official after-trading all-security table.
     # Use that official table as a second generic fallback; no symbol is
     # special-cased. The first two columns are security code and name.
-    otc_payload = _request(
-        "https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_wn1430_result.php",
-        {"l": "zh-tw", "se": "EW", "o": "json"},
-        timeout=30,
-    ).json()
     otc_rows = []
-    for table in otc_payload.get("tables", []):
-        fields = table.get("fields", [])
-        if len(fields) < 2:
+    # Query all official TPEx security classes exposed by the after-trading
+    # endpoint. Some bond ETFs are not returned by the ETF discovery view.
+    for security_class in ("EW", "AL"):
+        try:
+            otc_payload = _request(
+                "https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_wn1430_result.php",
+                {"l": "zh-tw", "se": security_class, "o": "json"},
+                timeout=30,
+            ).json()
+        except (requests.RequestException, ValueError):
             continue
-        for row in table.get("data", []):
-            if len(row) >= 2:
-                otc_rows.append({"證券代號": row[0], "證券名稱": row[1]})
+        for table in otc_payload.get("tables", []):
+            for row in table.get("data", []):
+                if len(row) >= 2:
+                    otc_rows.append({"證券代號": row[0], "證券名稱": row[1]})
     _merge_tpex_quote_fallback(etfs, otc_rows)
     # Holdings are a separate public source. Keep failures explicit per ETF;
     # never manufacture an empty successful holding list.
