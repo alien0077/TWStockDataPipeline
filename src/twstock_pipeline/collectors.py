@@ -21,6 +21,15 @@ import requests
 HEADERS = {"User-Agent": "TWStockDataPipeline/1.0", "Accept": "application/json,text/plain,*/*"}
 
 
+def _number(value):
+    if value is None or value == "":
+        return None
+    try:
+        return float(str(value).replace(",", "").replace("--", ""))
+    except ValueError:
+        return None
+
+
 def _request(url: str, params: dict | None = None, timeout: int = 30) -> requests.Response:
     response = requests.get(url, params=params, headers=HEADERS, timeout=timeout)
     response.raise_for_status()
@@ -58,7 +67,25 @@ def sync_market(day: date, data_root: Path) -> Path:
     twse = _request("https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX", {"date": stamp, "type": "ALLBUT0999", "response": "json"}).json()
     tpex = _request("https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes/download", {"d": f"{day.year - 1911}/{day.month:02d}/{day.day:02d}"}).content.decode("big5", errors="replace")
     path = data_root / "daily" / "tw" / f"{day.isoformat()}.json"
-    _write_json(path, {"date": day.isoformat(), "source": "TWSE/TPEX official daily market", "twse": twse, "tpex_csv": tpex})
+    rows = []
+    for table in twse.get("tables", []):
+        fields = table.get("fields", [])
+        if "證券代號" not in fields or "收盤價" not in fields:
+            continue
+        for raw in table.get("data", []):
+            values = dict(zip(fields, raw))
+            stock_id = str(values.get("證券代號", "")).strip()
+            if not stock_id:
+                continue
+            rows.append({
+                "id": stock_id, "date": day.isoformat(),
+                "o": _number(values.get("開盤價")), "h": _number(values.get("最高價")),
+                "l": _number(values.get("最低價")), "c": _number(values.get("收盤價")),
+                "v": _number(values.get("成交股數")), "t": _number(values.get("成交金額")),
+                "pct": _number(values.get("漲跌價差")),
+            })
+        break
+    _write_json(path, {"version": "1.0", "updated_at": day.isoformat(), "stocks": rows, "data": rows, "source": "TWSE/TPEX official daily market"})
     return path
 
 
@@ -74,7 +101,16 @@ def sync_margin(day: date, data_root: Path) -> Path:
     stamp = day.strftime("%Y%m%d")
     payload = _request("https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN", {"date": stamp, "selectType": "ALL", "response": "json"}).json()
     path = data_root / "daily" / "tw_market_margin" / f"{day.isoformat()}.json"
-    _write_json(path, {"date": day.isoformat(), "source": "TWSE MI_MARGN official margin", "payload": payload})
+    tables = payload.get("tables", [])
+    summary = tables[0].get("data", []) if tables else []
+    detail = tables[1].get("data", []) if len(tables) > 1 else []
+    margin_by_stock = {}
+    for row in detail:
+        if len(row) >= 7 and str(row[0]).strip():
+            margin_by_stock[str(row[0]).strip()] = _number(row[6])
+    totals = {"raw_summary": summary, "margin_by_stock": margin_by_stock}
+    record = {"date": day.isoformat(), "twse": totals, "tpex": {}, "margin_by_stock": margin_by_stock}
+    _write_json(path, {"version": "1.0", "updated_at": day.isoformat(), "stocks": [record], "data": [record], "source": "TWSE MI_MARGN official margin"})
     return path
 
 
