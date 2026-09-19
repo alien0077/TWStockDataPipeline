@@ -91,3 +91,5 @@ def test_publish_plan_never_emits_deletion_for_untouched_baseline_paths():
     assert state.safety.delete_count == 0
     assert "data/untouched.json" not in state.publish_plan
     assert "data/untouched.json" not in state.changes
+
+# hosted-ci trigger
