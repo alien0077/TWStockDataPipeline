@@ -217,6 +217,28 @@ def sync_revenue(data_root: Path) -> Path:
     return path
 
 
+def _is_etf_security_code(code: str) -> bool:
+    """TPEx official ETF coding classes: A active, B bond, C foreign-currency."""
+    return bool(code) and code[-1] in {"A", "B", "C"}
+
+
+def _merge_tpex_quote_fallback(etfs: dict[str, dict], quote_rows: list[dict]) -> None:
+    for item in quote_rows:
+        code = str(item.get("SecuritiesCompanyCode", "")).strip()
+        name = str(item.get("CompanyName", "")).strip()
+        if not code or not name or not _is_etf_security_code(code) or code in etfs:
+            continue
+        etfs[code] = {
+            "name": name,
+            "category": "ETF",
+            "type": "ETF",
+            "tier": "official",
+            "data_mode": "public_probe",
+            "holdings": [],
+            "source": "TPEx official daily security quotes ETF fallback",
+        }
+
+
 def sync_etf(data_root: Path) -> Path:
     """Use the existing public TWSE + TPEx ETF registry sources."""
     universe = _request("https://openapi.twse.com.tw/v1/opendata/t187ap47_L").json()
@@ -254,6 +276,12 @@ def sync_etf(data_root: Path) -> Path:
             "issuer": str(item.get("issuer", "")).strip(),
             "index_name": str(item.get("indexName", "")).strip(),
         }
+    # etfFilter is a discovery view, not a complete security master.  TPEx
+    # daily quotes are the official current-security fallback.  TPEx's ETF
+    # coding rule identifies bond/foreign-currency/active ETF certificates by
+    # the terminal A/B/C class letter; only those records are admitted.
+    quote_rows = _request("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes", timeout=30).json()
+    _merge_tpex_quote_fallback(etfs, quote_rows)
     # Holdings are a separate public source. Keep failures explicit per ETF;
     # never manufacture an empty successful holding list.
     def probe(entry: tuple[str, dict]) -> tuple[str, bool, str | None]:
