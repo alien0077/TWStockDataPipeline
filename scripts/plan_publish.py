@@ -37,6 +37,27 @@ def files(root: Path, rel: str) -> list[Path]:
     return sorted(path.rglob("*.json")) if path.exists() else []
 
 
+def merged_bytes(old: Path, new: Path, domain: str) -> bytes:
+    """Apply the production historical merge semantics in-memory."""
+    if domain not in {"TDCC", "revenue", "financial"} or not old.exists():
+        return new.read_bytes()
+    left, right = json.loads(old.read_text()), json.loads(new.read_text())
+    key = "recent" if domain == "TDCC" else "data"
+    old_rows, new_rows = left.get(key, []), right.get(key, [])
+    def period(row):
+        return str(row.get("date") or row.get("period") or row.get("week") or "")
+    merged = {period(row): row for row in old_rows if period(row)}
+    for row in new_rows:
+        p = period(row)
+        if not p:
+            continue
+        prior = merged.get(p, {})
+        merged[p] = {k: (v if v is not None else prior.get(k)) for k, v in {**prior, **row}.items()}
+    rows = sorted(merged.values(), key=period, reverse=True)
+    right[key] = rows
+    return (json.dumps(right, ensure_ascii=False, indent=2) + "\n").encode()
+
+
 added, modified, deleted, unchanged = [], [], [], []
 by_domain = {}
 for domain, (old_rel, shadow_rel) in mapping.items():
@@ -49,7 +70,7 @@ for domain, (old_rel, shadow_rel) in mapping.items():
             added.append(rel); domain_result["added"].append(rel)
         elif shadow is None:
             deleted.append(rel); domain_result["deleted"].append(rel)
-        elif digest(old) == digest(shadow):
+        elif hashlib.sha256(merged_bytes(old, shadow, domain).strip()).hexdigest() == digest(old):
             unchanged.append(rel); domain_result["unchanged"].append(rel)
         else:
             modified.append(rel); domain_result["modified"].append(rel)
