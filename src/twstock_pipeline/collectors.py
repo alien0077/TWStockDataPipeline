@@ -10,6 +10,7 @@ import io
 import json
 import os
 import tempfile
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode
@@ -24,6 +25,18 @@ def _request(url: str, params: dict | None = None, timeout: int = 30) -> request
     response = requests.get(url, params=params, headers=HEADERS, timeout=timeout)
     response.raise_for_status()
     return response
+
+
+def _request_bounded(url: str, params: dict | None = None, timeout: int = 30, attempts: int = 3) -> requests.Response:
+    last = None
+    for attempt in range(attempts):
+        try:
+            return _request(url, params, timeout)
+        except requests.RequestException as exc:
+            last = exc
+            if attempt + 1 < attempts:
+                time.sleep(2 ** attempt)
+    raise last
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -112,9 +125,17 @@ def sync_revenue(data_root: Path) -> Path:
         "twse": "https://openapi.twse.com.tw/v1/opendata/t187ap05_L",
         "tpex": "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap05_O",
     }
-    payload = {name: _request(url).json() for name, url in endpoints.items()}
+    payload = {}
+    errors = {}
+    for name, url in endpoints.items():
+        try:
+            payload[name] = _request_bounded(url, timeout=30).json()
+        except requests.RequestException as exc:
+            errors[name] = {"error": type(exc).__name__, "message": str(exc)}
+    if errors:
+        payload["upstream_errors"] = errors
     path = data_root / "monthly" / "revenue" / "latest.json"
-    _write_json(path, {"source": "TWSE/TPEX official monthly revenue", "datasets": payload})
+    _write_json(path, {"source": "TWSE/TPEX official monthly revenue", "datasets": payload, "upstream_status": "partial" if errors else "complete"})
     return path
 
 

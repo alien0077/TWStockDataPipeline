@@ -42,6 +42,13 @@ def compare(old: Path, shadow: Path) -> dict:
     return {"status": status, "reasons": reasons, "old": left, "shadow": right}
 
 
+def institutional_boundary(old: Path, shadow: Path) -> dict:
+    result = compare(old, shadow)
+    result["status"] = "NOT_APPLICABLE_PRIVATE"
+    result["reasons"] = ["legacy leaderboard is private-derived; public gate covers official T86 base only"]
+    return result
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--old-root", type=Path, required=True)
 parser.add_argument("--shadow-root", type=Path, required=True)
@@ -72,6 +79,7 @@ shadow_contracts = {
     "corporate_actions": f"meta/actions/{date.today().year}.json",
 }
 report = {domain: compare(latest_output(args.old_root, contracts[domain]), latest_output(args.shadow_root, shadow_contracts[domain])) for domain in contracts}
+report["institutional"] = institutional_boundary(latest_output(args.old_root, contracts["institutional"]), latest_output(args.shadow_root, shadow_contracts["institutional"]))
 args.output.parent.mkdir(parents=True, exist_ok=True)
 args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 print(json.dumps({k: v["status"] for k, v in report.items()}, ensure_ascii=False))
