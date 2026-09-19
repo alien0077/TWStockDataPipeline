@@ -1,0 +1,37 @@
+name: Validate public production collectors (shadow)
+on:
+  workflow_dispatch:
+concurrency: {group: public-shadow-validation, cancel-in-progress: false}
+jobs:
+  shadow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: pip install -r requirements.txt
+      - name: Run independent public domains
+        shell: bash
+        run: |
+          mkdir -p artifacts/shadow artifacts/reports
+          for domain in market institutional margin etf fx tdcc revenue financial calendar corporate_actions; do
+            started=$(date +%s)
+            set +e
+            python scripts/sync_public.py "$domain" --data-root artifacts/shadow >"artifacts/reports/$domain.log" 2>&1
+            code=$?
+            set -e
+            ended=$(date +%s)
+            printf '{"domain":"%s","status":"%s","duration_seconds":%s}\n' "$domain" "$([ "$code" -eq 0 ] && echo PASS || echo BLOCKED)" "$((ended-started))" >"artifacts/reports/$domain.json"
+          done
+      - name: Generate health and compatibility report
+        if: always()
+        run: |
+          python scripts/generate_health.py --data-root artifacts/shadow --state artifacts/shadow/pipeline_state.json --output artifacts/shadow/data_health.json || true
+          python scripts/compare_public_data.py --old-root /tmp/empty-public-data --shadow-root artifacts/shadow --output artifacts/compatibility_report.json || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: twstock-shadow-output
+          path: artifacts/
+          if-no-files-found: error

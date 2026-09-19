@@ -1,0 +1,15 @@
+name: Public data health
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 * * * *'
+concurrency: {group: public-health, cancel-in-progress: true}
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: python scripts/generate_health.py
