@@ -36,19 +36,27 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-          p = Path('artifacts/shadow/quant/etf/outputs/latest_snapshot.json')
+          candidates = list(Path('artifacts').rglob('latest_snapshot.json'))
+          p = candidates[0] if candidates else Path('artifacts/shadow/quant/etf/outputs/latest_snapshot.json')
           payload = json.loads(p.read_text()) if p.exists() else {}
-          rows = payload.get('etfs', payload if isinstance(payload, list) else {})
+          rows = payload.get('etfs', payload.get('data', payload if isinstance(payload, list) else {}))
+          if isinstance(rows, list):
+              rows = {str(x.get('symbol') or x.get('code') or ''): x for x in rows if isinstance(x, dict)}
           symbols = sorted(rows)
-          legacy_path = Path('artifacts/legacy/data/quant/etf/outputs/latest_snapshot.json')
+          legacy_candidates = list(Path('artifacts/legacy').rglob('latest_snapshot.json'))
+          legacy_path = legacy_candidates[0] if legacy_candidates else Path('artifacts/legacy/data/quant/etf/outputs/latest_snapshot.json')
           legacy_payload = json.loads(legacy_path.read_text()) if legacy_path.exists() else {}
-          legacy_rows = legacy_payload.get('etfs', legacy_payload if isinstance(legacy_payload, list) else {})
+          legacy_rows = legacy_payload.get('etfs', legacy_payload.get('data', legacy_payload if isinstance(legacy_payload, list) else {}))
+          if isinstance(legacy_rows, list):
+              legacy_rows = {str(x.get('symbol') or x.get('code') or ''): x for x in legacy_rows if isinstance(x, dict)}
           legacy = set(legacy_rows)
           current = set(symbols)
           out = {
               'collector_commit': '${{ github.sha }}',
               'runner': 'ubuntu-latest',
               'snapshot_path': str(p),
+              'snapshot_exists': p.exists(),
+              'snapshot_keys': sorted(payload) if isinstance(payload, dict) else [],
               'etf_count': len(current),
               'contains_00793B': '00793B' in current,
               'legacy_count': len(legacy),
