@@ -18,7 +18,9 @@ def merge_history(path: Path, incoming: Iterable[dict], key: Callable[[dict], st
     merged = {key(row): row for row in existing}
     for row in incoming:
         if isinstance(row, dict) and key(row):
-            merged[key(row)] = row
+            period = key(row)
+            prior = merged.get(period, {})
+            merged[period] = {field: (value if value is not None else prior.get(field)) for field, value in {**prior, **row}.items()}
     rows = sorted(merged.values(), key=sort_key, reverse=True)
     return {"data": rows}
 
