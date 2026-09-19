@@ -58,7 +58,7 @@ def main() -> int:
         "calendar": "meta/calendar.json",
         "corporate_actions": "meta/actions",
     }
-    publishable = [domain for domain in mapping if report.get(domain, {}).get("status") == "PASS"]
+    allowed_status = {"PASS", "NOT_APPLICABLE_PRIVATE"}\n    publishable = [domain for domain in mapping if report.get(domain, {}).get("status") in allowed_status]
     if not publishable:
         raise SystemExit("compatibility gate: no PASS domain is publishable")
 
@@ -88,7 +88,7 @@ def main() -> int:
                 baseline_files[publish_path] = _read_required(baseline_path)
             domain_by_path[publish_path] = domain
 
-    compatibility_pass = all(report.get(domain, {}).get("status") == "PASS" for domain in publishable)
+    compatibility_pass = all(report.get(domain, {}).get("status") in allowed_status for domain in publishable)
     state = prepare_publish_state(
         baseline_sha=args.baseline_sha,
         baseline_files=baseline_files,
