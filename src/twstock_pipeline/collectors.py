@@ -13,6 +13,7 @@ import tempfile
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
@@ -119,13 +120,22 @@ def sync_etf(data_root: Path) -> Path:
         etfs[code] = {"name": name, "holdings": [], "source": "TWSE ETF OpenAPI"}
     # Holdings are a separate public source. Keep failures explicit per ETF;
     # never manufacture an empty successful holding list.
-    for code, item in list(etfs.items())[:200]:
-        response = _request(f"https://www.etfinfo.tw/etf/{code}/holdings", timeout=20)
-        marker = '"holdings"'
-        if response.status_code == 200 and marker in response.text:
-            item["raw_available"] = True
-        else:
-            item["raw_available"] = False
+    def probe(entry: tuple[str, dict]) -> tuple[str, bool, str | None]:
+        code, _ = entry
+        try:
+            response = _request(f"https://www.etfinfo.tw/etf/{code}/holdings", timeout=10)
+            return code, response.status_code == 200 and '"holdings"' in response.text, None
+        except Exception as exc:
+            return code, False, type(exc).__name__
+
+    # Bounded concurrency keeps a full universe run finite on hosted runners.
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(probe, entry) for entry in list(etfs.items())[:200]]
+        for future in as_completed(futures):
+            code, available, error = future.result()
+            etfs[code]["raw_available"] = available
+            if error:
+                etfs[code]["probe_error"] = error
     path = data_root / "quant" / "etf" / "outputs" / "latest_snapshot.json"
     _write_json(path, {"updated_at": datetime.now(timezone.utc).isoformat(), "etfs": etfs, "source": "TWSE ETF universe + ETFInfo public holdings"})
     return path
