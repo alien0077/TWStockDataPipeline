@@ -30,6 +30,35 @@ jobs:
           python scripts/build_shadow_health.py --data-root artifacts/shadow --output artifacts/shadow/data_health.json
           git clone --depth 1 https://github.com/alien0077/Public_Data.git artifacts/legacy
           python scripts/compare_public_data.py --old-root artifacts/legacy/data --shadow-root artifacts/shadow --output artifacts/compatibility_report.json
+      - name: Generate compact hosted ETF evidence
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('artifacts/shadow/quant/etf/outputs/latest_snapshot.json')
+          payload = json.loads(p.read_text()) if p.exists() else {}
+          rows = payload.get('etfs', payload if isinstance(payload, list) else {})
+          symbols = sorted(rows)
+          legacy_path = Path('artifacts/legacy/data/quant/etf/outputs/latest_snapshot.json')
+          legacy_payload = json.loads(legacy_path.read_text()) if legacy_path.exists() else {}
+          legacy_rows = legacy_payload.get('etfs', legacy_payload if isinstance(legacy_payload, list) else {})
+          legacy = set(legacy_rows)
+          current = set(symbols)
+          out = {
+              'collector_commit': '${{ github.sha }}',
+              'runner': 'ubuntu-latest',
+              'snapshot_path': str(p),
+              'etf_count': len(current),
+              'contains_00793B': '00793B' in current,
+              'legacy_count': len(legacy),
+              'intersection_count': len(legacy & current),
+              'legacy_only': sorted(legacy - current),
+              'current_only': sorted(current - legacy),
+              'known_active_missing': sorted(legacy - current)
+          }
+          Path('artifacts/reports/hosted_etf_validation.json').write_text(json.dumps(out, ensure_ascii=False, indent=2) + '\n')
+          PY
           rm -rf artifacts/legacy
       - uses: actions/upload-artifact@v4
         if: always()
