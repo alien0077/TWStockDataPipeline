@@ -35,6 +35,29 @@ class GitHubGitDataAPI:
         data = self._request("GET", f"{self._base(repo)}/git/commits/{sha}")
         return {"tree": data["tree"]["sha"]}
 
+    def get_tree(self, repo: str, tree_sha: str, recursive: bool = True) -> dict:
+        params = {"recursive": "1"} if recursive else None
+        return self._request("GET", f"{self._base(repo)}/git/trees/{tree_sha}", params=params)
+
+    def get_blob(self, repo: str, sha: str) -> bytes:
+        data = self._request("GET", f"{self._base(repo)}/git/blobs/{sha}")
+        if data.get("encoding") != "base64":
+            raise ValueError("unsupported GitHub blob encoding")
+        return base64.b64decode(str(data["content"]).replace("\n", ""))
+
+    def load_files_at_commit(self, repo: str, commit_sha: str, paths: list[str]) -> dict[str, bytes]:
+        commit = self.get_commit(repo, commit_sha)
+        tree = self.get_tree(repo, commit["tree"], recursive=True)
+        if tree.get("truncated"):
+            raise ValueError("GitHub recursive tree truncated; refuse incomplete baseline")
+        wanted = set(paths)
+        index = {
+            str(item.get("path")): str(item.get("sha"))
+            for item in tree.get("tree", [])
+            if item.get("type") == "blob" and item.get("path") in wanted
+        }
+        return {path: self.get_blob(repo, index[path]) for path in sorted(index)}
+
     def create_blob(self, repo: str, data: bytes) -> str:
         payload = {"content": base64.b64encode(data).decode("ascii"), "encoding": "base64"}
         return str(self._request("POST", f"{self._base(repo)}/git/blobs", json=payload)["sha"])
