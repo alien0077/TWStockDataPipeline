@@ -2,11 +2,6 @@ name: Publisher safety tests
 
 on:
   pull_request:
-    paths:
-      - "scripts/publish_public.py"
-      - "src/twstock_pipeline/**"
-      - "tests/**"
-      - ".github/workflows/publisher_tests.yml"
   workflow_dispatch:
 
 permissions:
