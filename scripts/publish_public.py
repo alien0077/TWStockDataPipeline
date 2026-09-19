@@ -20,7 +20,7 @@ from twstock_pipeline.github_api import GitHubGitDataAPI
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--shadow-root", type=Path, required=True)
-    parser.add_argument("--baseline-root", type=Path, required=True)
+    parser.add_argument("--baseline-root", type=Path, help="optional offline baseline; production defaults to read-only GitHub API")
     parser.add_argument("--baseline-sha", required=True)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--repo", default="alien0077/Public_Data")
