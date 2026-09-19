@@ -297,6 +297,25 @@ def sync_etf(data_root: Path) -> Path:
     # the terminal A/B/C class letter; only those records are admitted.
     quote_rows = _request("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes", timeout=30).json()
     _merge_tpex_quote_fallback(etfs, quote_rows)
+
+    # The OpenAPI stock-quote dataset can omit exchange-traded bond ETFs that
+    # remain present in TPEx's official after-trading all-security table.
+    # Use that official table as a second generic fallback; no symbol is
+    # special-cased. The first two columns are security code and name.
+    otc_payload = _request(
+        "https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_wn1430_result.php",
+        {"l": "zh-tw", "se": "EW", "o": "json"},
+        timeout=30,
+    ).json()
+    otc_rows = []
+    for table in otc_payload.get("tables", []):
+        fields = table.get("fields", [])
+        if len(fields) < 2:
+            continue
+        for row in table.get("data", []):
+            if len(row) >= 2:
+                otc_rows.append({"證券代號": row[0], "證券名稱": row[1]})
+    _merge_tpex_quote_fallback(etfs, otc_rows)
     # Holdings are a separate public source. Keep failures explicit per ETF;
     # never manufacture an empty successful holding list.
     def probe(entry: tuple[str, dict]) -> tuple[str, bool, str | None]:
