@@ -149,3 +149,30 @@ def test_entrypoint_accepts_explicit_private_boundary_status(tmp_path, monkeypat
     ])
     assert publish_public.main() == 0
     assert json.loads(checkpoint.read_text())["gates"]["compatibility_pass"] is True
+
+
+def test_remote_baseline_loader_is_used_without_local_baseline(tmp_path, monkeypatch):
+    shadow = tmp_path / "shadow"
+    report = tmp_path / "report.json"
+    checkpoint = tmp_path / "checkpoint.json"
+    (shadow / "meta").mkdir(parents=True)
+    candidate = b'{"version":2}\n'
+    (shadow / "meta" / "exchange_rate_history.json").write_bytes(candidate)
+    report.write_text(json.dumps({"fx": {"status": "PASS"}}))
+    monkeypatch.setattr(sys, "argv", [
+        "publish_public.py", "--shadow-root", str(shadow),
+        "--baseline-sha", "baseline", "--report", str(report),
+        "--checkpoint", str(checkpoint),
+    ])
+
+    class Reader(FakeAPI):
+        def load_files_at_commit(self, repo, sha, paths):
+            assert sha == "baseline"
+            assert paths == ["data/meta/exchange_rate_history.json"]
+            return {"data/meta/exchange_rate_history.json": b'{"version":1}\n'}
+
+    FakeAPI.instances.clear()
+    monkeypatch.setattr(publish_public, "GitHubGitDataAPI", Reader)
+    assert publish_public.main() == 0
+    result = json.loads(checkpoint.read_text())
+    assert result["plan"]["data/meta/exchange_rate_history.json"] == "MODIFY"
