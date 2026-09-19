@@ -8,6 +8,19 @@ class PublishError(RuntimeError):
     pass
 
 
+def validate_publish_gates(gates: dict[str, object] | None) -> None:
+    """Fail closed before any GitHub API call which can mutate state."""
+    gates = gates or {}
+    if gates.get("compatibility_pass") is not True:
+        raise PublishError("compatibility gate failed")
+    if int(gates.get("history_failures", 0)) != 0:
+        raise PublishError("history preservation gate failed")
+    if int(gates.get("data_loss_count", 0)) != 0:
+        raise PublishError("DATA_LOSS gate failed")
+    if int(gates.get("delete_count", 0)) != 0:
+        raise PublishError("delete gate failed")
+
+
 @dataclass
 class GitDataPublisher:
     api: object
@@ -16,7 +29,8 @@ class GitDataPublisher:
     dry_run: bool = True
     chunk_size: int = 1000
 
-    def publish(self, expected_head: str, changes: dict[str, bytes]) -> dict:
+    def publish(self, expected_head: str, changes: dict[str, bytes], gates: dict[str, object] | None = None) -> dict:
+        validate_publish_gates(gates)
         if not self.dry_run and not self.token:
             raise PublishError("PUBLIC_DATA_TOKEN is required for production publish")
         head = self.api.get_ref(self.repo)

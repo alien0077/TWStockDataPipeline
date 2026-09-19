@@ -1,6 +1,8 @@
 import pytest
 from twstock_pipeline.git_data_publish import GitDataPublisher, PublishError
 
+PASS = {"compatibility_pass": True, "history_failures": 0, "data_loss_count": 0, "delete_count": 0}
+
 
 class FakeAPI:
     def __init__(self, head="h"):
@@ -14,13 +16,13 @@ class FakeAPI:
 
 
 def test_dry_run_never_writes_and_requires_base_tree():
-    api = FakeAPI(); result = GitDataPublisher(api, "x/y").publish("h", {"data/a.json": b"{}"})
+    api = FakeAPI(); result = GitDataPublisher(api, "x/y").publish("h", {"data/a.json": b"{}"}, PASS)
     assert result["dry_run"] and result["base_tree"] == "tree0"
     assert not any(c[0] in {"blob", "tree", "commit", "ref"} for c in api.calls)
 
 
 def test_publish_uses_parent_base_tree_and_force_false():
-    api = FakeAPI(); result = GitDataPublisher(api, "x/y", token="t", dry_run=False).publish("h", {"data/a.json": b"{}"})
+    api = FakeAPI(); result = GitDataPublisher(api, "x/y", token="t", dry_run=False).publish("h", {"data/a.json": b"{}"}, PASS)
     assert result["commit"] == "commit"
     assert ("tree", "tree0", [{"path": "data/a.json", "mode": "100644", "type": "blob", "sha": "blob"}]) in api.calls
     assert ("commit", "tree0x", ["h"]) in api.calls
@@ -33,17 +35,32 @@ def test_head_race_aborts_before_ref_update():
     def raced(repo):
         api.calls.append(("get_ref", repo)); return "h" if len([c for c in api.calls if c[0] == "get_ref"]) == 1 else "other"
     api.get_ref = raced
-    with pytest.raises(PublishError): GitDataPublisher(api, "x/y", token="t", dry_run=False).publish("h", {"x": b"1"})
+    with pytest.raises(PublishError): GitDataPublisher(api, "x/y", token="t", dry_run=False).publish("h", {"x": b"1"}, PASS)
     assert not any(c[0] == "ref" for c in api.calls)
 
 
 def test_missing_token_fails_without_write():
     api = FakeAPI()
-    with pytest.raises(PublishError): GitDataPublisher(api, "x/y", dry_run=False).publish("h", {"x": b"1"})
+    with pytest.raises(PublishError): GitDataPublisher(api, "x/y", dry_run=False).publish("h", {"x": b"1"}, PASS)
     assert api.calls == []
 
 
 def test_chunking_chains_tree_base():
-    api = FakeAPI(); result = GitDataPublisher(api, "x/y", token="t", dry_run=False, chunk_size=1).publish("h", {"a": b"1", "b": b"2"})
+    api = FakeAPI(); result = GitDataPublisher(api, "x/y", token="t", dry_run=False, chunk_size=1).publish("h", {"a": b"1", "b": b"2"}, PASS)
     trees = [c for c in api.calls if c[0] == "tree"]
     assert trees[0][1] == "tree0" and trees[1][1] == "tree0x"
+
+
+@pytest.mark.parametrize("field,value", [("history_failures", 1), ("data_loss_count", 1), ("delete_count", 1)])
+def test_failed_safety_gate_performs_zero_api_calls(field, value):
+    api = FakeAPI(); gates = dict(PASS); gates[field] = value
+    with pytest.raises(PublishError):
+        GitDataPublisher(api, "x/y", token="t", dry_run=False).publish("h", {"x": b"1"}, gates)
+    assert api.calls == []
+
+
+def test_compatibility_gate_is_required():
+    api = FakeAPI()
+    with pytest.raises(PublishError):
+        GitDataPublisher(api, "x/y").publish("h", {"x": b"1"}, {})
+    assert api.calls == []
