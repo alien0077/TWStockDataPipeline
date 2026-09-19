@@ -83,10 +83,17 @@ def main() -> int:
             rel = source.relative_to(args.shadow_root).as_posix()
             publish_path = f"data/{rel}"
             candidate_files[publish_path] = _read_required(source)
-            baseline_path = args.baseline_root / publish_path
-            if baseline_path.exists():
-                baseline_files[publish_path] = _read_required(baseline_path)
+            if args.baseline_root:
+                baseline_path = args.baseline_root / publish_path
+                if baseline_path.exists():
+                    baseline_files[publish_path] = _read_required(baseline_path)
             domain_by_path[publish_path] = domain
+
+    if not args.baseline_root:
+        reader = GitHubGitDataAPI(token=os.environ.get("GITHUB_TOKEN"))
+        baseline_files = reader.load_files_at_commit(
+            args.repo, args.baseline_sha, sorted(candidate_files)
+        )
 
     compatibility_pass = all(report.get(domain, {}).get("status") in allowed_status for domain in publishable)
     state = prepare_publish_state(
