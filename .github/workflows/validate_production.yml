@@ -15,7 +15,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p artifacts/shadow artifacts/reports
-          for domain in market institutional margin etf fx tdcc revenue financial calendar corporate_actions; do
+          for domain in calendar market institutional margin etf fx tdcc revenue financial corporate_actions; do
             started=$(date +%s)
             set +e
             python scripts/sync_public.py "$domain" --data-root artifacts/shadow >"artifacts/reports/$domain.log" 2>&1

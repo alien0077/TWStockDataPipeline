@@ -69,7 +69,17 @@ def sync_calendar(data_root: Path) -> Path:
     payload = _request("https://www.twse.com.tw/holidaySchedule/holidaySchedule", {"response": "json"}).json()
     holidays = [row[0].strip() for row in payload.get("data", []) if len(row) >= 2 and "開始交易" not in row[1]]
     path = data_root / "meta" / "calendar.json"
-    _write_json(path, {"source": "TWSE official holidaySchedule", "holidays": sorted(set(holidays)), "raw": payload})
+    today = date.today().isoformat()
+    _write_json(path, {
+        "version": "2.0",
+        "updated_at": today,
+        "stocks": [],
+        "data": [],
+        "meta": {"version": "2.0", "updated_at": today, "today": today, "years": {}},
+        "source": "TWSE official holidaySchedule",
+        "holidays": sorted(set(holidays)),
+        "raw": payload,
+    })
     return path
 
 
@@ -117,7 +127,15 @@ def sync_etf(data_root: Path) -> Path:
         name = str(item.get("基金簡稱", "")).strip()
         if not code or not name:
             continue
-        etfs[code] = {"name": name, "holdings": [], "source": "TWSE ETF OpenAPI"}
+        etfs[code] = {
+            "name": name,
+            "category": "ETF",
+            "type": "ETF",
+            "tier": "official",
+            "data_mode": "public_probe",
+            "holdings": [],
+            "source": "TWSE ETF OpenAPI",
+        }
     # Holdings are a separate public source. Keep failures explicit per ETF;
     # never manufacture an empty successful holding list.
     def probe(entry: tuple[str, dict]) -> tuple[str, bool, str | None]:
@@ -137,7 +155,8 @@ def sync_etf(data_root: Path) -> Path:
             if error:
                 etfs[code]["probe_error"] = error
     path = data_root / "quant" / "etf" / "outputs" / "latest_snapshot.json"
-    _write_json(path, {"updated_at": datetime.now(timezone.utc).isoformat(), "etfs": etfs, "source": "TWSE ETF universe + ETFInfo public holdings"})
+    # Public_Data's legacy contract is a code-keyed snapshot, not a wrapper.
+    _write_json(path, etfs)
     return path
 
 
@@ -156,7 +175,7 @@ def sync_fx(data_root: Path) -> Path:
                 day = datetime.fromtimestamp(stamp, timezone.utc).date().isoformat()
                 rows_by_date.setdefault(day, {"date": day})[label] = close
     path = data_root / "meta" / "exchange_rate_history.json"
-    _write_json(path, {"version": "2.2", "base": "TWD", "currencies": list(symbols) + ["TWD_TWD"], "data": [rows_by_date[k] for k in sorted(rows_by_date)], "source": "Yahoo Finance chart public endpoint"})
+    _write_json(path, {"version": "2.2", "updated_at": date.today().isoformat(), "base": "TWD", "currencies": list(symbols) + ["TWD_TWD"], "data": [rows_by_date[k] for k in sorted(rows_by_date)], "source": "Yahoo Finance chart public endpoint"})
     return path
 
 
@@ -169,5 +188,6 @@ def sync_corporate_actions(data_root: Path, start: date | None = None, end: date
         for row in payload.get("data", []):
             actions.append({"type": kind, "source": f"TWSE {code}", "raw": row, "fields": payload.get("fields", [])})
     path = data_root / "meta" / "actions" / f"{end.year}.json"
-    _write_json(path, {"source": "TWSE official corporate actions", "stocks": actions, "year": end.year})
+    updated_at = date.today().isoformat()
+    _write_json(path, {"version": "2.0", "updated_at": updated_at, "stocks": actions, "data": actions, "source": "TWSE official corporate actions", "year": end.year})
     return path
