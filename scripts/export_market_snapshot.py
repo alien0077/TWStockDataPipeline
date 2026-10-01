@@ -2,14 +2,12 @@
 """Export one historical TWSE + TPEx daily close snapshot.
 
 This is a public-data compatibility helper for downstream research consumers.
-It uses the same official endpoints as the pipeline and writes the normalized
+It uses official historical endpoints and writes the normalized
 ``daily/tw/YYYY-MM-DD.json`` contract without any valuation logic.
 """
 from __future__ import annotations
 
 import argparse
-import csv
-import io
 import json
 import re
 from datetime import date
@@ -32,6 +30,13 @@ def number(value):
         return float(text)
     except ValueError:
         return None
+
+
+def first(values: dict, *names):
+    for name in names:
+        if name in values and values[name] not in (None, ""):
+            return values[name]
+    return None
 
 
 def twse_rows(payload: dict, day: date) -> list[dict]:
@@ -63,44 +68,51 @@ def twse_rows(payload: dict, day: date) -> list[dict]:
     return rows
 
 
-def tpex_rows(text: str, day: date) -> list[dict]:
-    """Parse TPEx dailyQuotes download rows.
-
-    The official download is Big5 CSV. Data rows use the stable leading
-    columns: security code, name, close, change, open, high, low, average,
-    volume, amount, transactions. Header/footer rows are rejected by security
-    code + numeric close validation instead of relying on localized labels.
-    """
+def tpex_rows(payload: dict, day: date) -> list[dict]:
+    """Parse TPEx historical JSON tables using labels before positional fallback."""
     rows: list[dict] = []
     seen: set[str] = set()
-    for raw in csv.reader(io.StringIO(text)):
-        if len(raw) < 10:
+    for table in payload.get("tables", []):
+        fields = table.get("fields", [])
+        raw_rows = table.get("data", [])
+        if not isinstance(fields, list) or not isinstance(raw_rows, list):
             continue
-        stock_id = str(raw[0]).strip().strip('="')
-        if not SECURITY_CODE.fullmatch(stock_id):
-            continue
-        close = number(raw[2])
-        if close is None or stock_id in seen:
-            continue
-        seen.add(stock_id)
-        rows.append(
-            {
-                "id": stock_id,
-                "date": day.isoformat(),
-                "market": "TPEX",
-                "o": number(raw[4]),
-                "h": number(raw[5]),
-                "l": number(raw[6]),
-                "c": close,
-                "v": number(raw[8]),
-                "t": number(raw[9]),
-            }
-        )
+        for raw in raw_rows:
+            if not isinstance(raw, list) or len(raw) < 8:
+                continue
+            values = dict(zip(fields, raw))
+            stock_id = str(
+                first(values, "代號", "證券代號", "股票代號")
+                or raw[0]
+                or ""
+            ).strip().strip('="')
+            if not SECURITY_CODE.fullmatch(stock_id):
+                continue
+            close = number(first(values, "收盤", "收盤價") or (raw[2] if len(raw) > 2 else None))
+            if close is None or stock_id in seen:
+                continue
+            seen.add(stock_id)
+            rows.append(
+                {
+                    "id": stock_id,
+                    "date": day.isoformat(),
+                    "market": "TPEX",
+                    "o": number(first(values, "開盤", "開盤價") or (raw[4] if len(raw) > 4 else None)),
+                    "h": number(first(values, "最高", "最高價") or (raw[5] if len(raw) > 5 else None)),
+                    "l": number(first(values, "最低", "最低價") or (raw[6] if len(raw) > 6 else None)),
+                    "c": close,
+                    "v": number(first(values, "成交股數", "成交量") or (raw[7] if len(raw) > 7 else None)),
+                    "t": number(first(values, "成交金額(元)", "成交金額") or (raw[8] if len(raw) > 8 else None)),
+                }
+            )
+        if rows:
+            break
     return rows
 
 
 def fetch(day: date) -> dict:
     stamp = day.strftime("%Y%m%d")
+    roc_day = f"{day.year - 1911}/{day.month:02d}/{day.day:02d}"
     twse = requests.get(
         "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX",
         params={"date": stamp, "type": "ALLBUT0999", "response": "json"},
@@ -109,21 +121,21 @@ def fetch(day: date) -> dict:
     )
     twse.raise_for_status()
     tpex = requests.get(
-        "https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes/download",
-        params={"d": f"{day.year - 1911}/{day.month:02d}/{day.day:02d}"},
+        "https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_wn1430_result.php",
+        params={"l": "zh-tw", "d": roc_day, "se": "EW", "o": "json"},
         headers=HEADERS,
         timeout=30,
     )
     tpex.raise_for_status()
     rows = twse_rows(twse.json(), day)
-    rows.extend(tpex_rows(tpex.content.decode("big5", errors="replace"), day))
+    rows.extend(tpex_rows(tpex.json(), day))
     deduped = {str(row["id"]): row for row in rows}
     return {
         "version": "2.0",
         "updated_at": day.isoformat(),
         "stocks": list(deduped.values()),
         "data": list(deduped.values()),
-        "source": "TWSE MI_INDEX + TPEx dailyQuotes official endpoints",
+        "source": "TWSE MI_INDEX + TPEx otc_quotes_no1430 official historical endpoints",
         "counts": {
             "total": len(deduped),
             "twse": sum(1 for row in deduped.values() if row["market"] == "TWSE"),
